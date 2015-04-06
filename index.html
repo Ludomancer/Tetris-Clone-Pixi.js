@@ -1,0 +1,453 @@
+<html>
+<head>
+    <title>pixi.js example 1</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000000;
+        }
+    </style>
+    <script src="pixi.js"></script>
+    <script src="buzz.min.js"></script>
+    <script src="tetrimo.js"></script>
+</head>
+<body onload="init();">
+    <script>
+ 
+        //Constants
+        var BG_IMG_KEY = "background.png";
+        var COLUMNS = 10;
+        var ROWS = 20;
+        var BLOCK_SIZE = 16;
+        var PLAY_AREA_PADDING = 16 * 10;
+        var GS_IDLE = 0;
+        var GS_PLAYING = 1;
+        var GS_LOST = 2;
+        var GS_PAUSED = 3;
+        
+        var stage;
+        var mBlockArray = new Array();
+        var mActiveTetrimo;
+        var mNextTetrimo;
+        var mLastFall = 0;   
+        var mFallInterval;
+        var mMaxFallInterval = 1 * 1000;
+        var mMinFallInterval = 0.4 * 1000;
+        var mLinesCleaned = 0;
+        
+        var mLastInputTaken = 0;
+        var mInputRepeatDelay = 0.7 * 1000;
+        var mInputRepeatDelayFast = 0.075 * 1000;
+        var mInputNextDelay = 0;
+        
+        var mNextTetrimo;
+        
+        var mClearLineScore = [100,200,300,600];
+        var mScore = 0;
+        
+        var mScoreText;
+        var mLevelText;
+        
+        var mGameState = 0;
+        
+        var mGameContainer = new PIXI.DisplayObjectContainer();
+        var mPauseContainer = new PIXI.DisplayObjectContainer();
+        var mStartContainer = new PIXI.DisplayObjectContainer();
+        var mLostContainer = new PIXI.DisplayObjectContainer();
+        
+        var mClearSound;
+        var mMusic;
+        var mMoveSound;
+        
+        function init()
+        {
+            var assetsToLoader = [ "assets/images/tetrimoAtlas.json"];
+
+            loader = new PIXI.AssetLoader(assetsToLoader);
+            loader.onComplete = onAssetsLoaded
+            loader.load();
+
+            stage = new PIXI.Stage(0x222222);
+
+            renderer = PIXI.autoDetectRecommendedRenderer((PLAY_AREA_PADDING * 2) + BLOCK_SIZE * COLUMNS + BLOCK_SIZE,BLOCK_SIZE*ROWS);
+
+            document.body.appendChild(renderer.view);
+            
+            mClearSound = new buzz.sound( "assets/audio/258020__kodack__arcade-bleep-sound", {
+                formats: [ "mp3" ]
+            });
+            mMusic = new buzz.sound( "assets/audio/251461__joshuaempyre__arcade-music-loop", {
+                formats: [ "mp3" ]
+            });
+            mMoveSound = new buzz.sound( "assets/audio/263006__dermotte__giant-step-1", {
+                formats: [ "mp3" ]
+            });
+            
+            mMusic.play().setVolume(25).loop();
+            
+            mFallInterval = mMaxFallInterval;
+            
+        }
+        
+        function onKeyUp(e)
+        {
+            var key = e.keyCode;
+            if (key === 37 || key === 39 || key === 40 || key === 38 || key === 32)
+            {
+                 mInputNextDelay = 0;
+            }
+        }
+                                    
+        function onKeyDown(e)
+        {
+            var canControl = mGameState == GS_PLAYING && !(mInputNextDelay > 0 && Date.now() - mLastInputTaken < mInputNextDelay);
+            var key = e.keyCode;
+
+            if(canControl)
+            {
+                if (key === 37) 
+                {
+                    //Left
+                    if(mActiveTetrimo.canMove("LEFT",mBlockArray)) 
+                    {
+                        mMoveSound.stop().play();
+                        mActiveTetrimo.move("LEFT");
+                    }
+                    mLastInputTaken = Date.now();
+                    if(mInputNextDelay == 0) mInputNextDelay = mInputRepeatDelay;
+                    else mInputNextDelay = mInputRepeatDelayFast;
+                }
+                if (key === 39) 
+                {
+                    //Right
+                    if(mActiveTetrimo.canMove("RIGHT",mBlockArray)) 
+                    {
+                        mMoveSound.stop().play();
+                        mActiveTetrimo.move("RIGHT");
+                    }
+                    mLastInputTaken = Date.now();
+                    if(mInputNextDelay == 0) mInputNextDelay = mInputRepeatDelay;
+                    else mInputNextDelay = mInputRepeatDelayFast;
+                }
+                if (key === 40) 
+                {
+                    //DOWN
+                    if(mActiveTetrimo.canMove("DOWN",mBlockArray)) 
+                    {
+                        mMoveSound.stop().play();
+                        mActiveTetrimo.move("DOWN");
+                    }
+                    else                    
+                    {
+                        onTouchGround();
+                    }
+                    mLastInputTaken = Date.now();
+                    if(mInputNextDelay == 0) mInputNextDelay = mInputRepeatDelay;
+                    else mInputNextDelay = mInputRepeatDelayFast;
+                }
+                if (key === 38) 
+                {
+                    //Up
+                    if(mActiveTetrimo.canRotate(mBlockArray)) 
+                    {
+                        mMoveSound.stop().play();
+                        mActiveTetrimo.rotate();
+                    }
+                    mLastInputTaken = Date.now();
+                    if(mInputNextDelay == 0) mInputNextDelay = mInputRepeatDelay;
+                    else mInputNextDelay = mInputRepeatDelayFast;
+                }
+                if (key === 32) 
+                {
+                    //Space
+                    mMoveSound.stop().play();
+                    while(mActiveTetrimo.canMove("DOWN",mBlockArray))
+                    {
+                        mActiveTetrimo.move("DOWN");
+                        renderer.render(stage);
+                    }
+                    onTouchGround();
+                }
+            }
+            if(key === 27)
+            {
+                //ESC Key
+                if(mGameState == GS_PLAYING)
+                {
+                    mGameState = GS_PAUSED;
+                    mGameContainer.alpha = 0.35;
+                    mPauseContainer.visible = true;
+                }
+                else if(mGameState == GS_PAUSED)
+                {
+                    mGameState = GS_PLAYING;
+                    mGameContainer.alpha = 1;
+                    mPauseContainer.visible = false;
+                }
+            }
+            if(key === 13)
+            {
+                //Enter
+                if(mGameState == GS_IDLE || mGameState == GS_PAUSED)
+                {
+                    mGameState = GS_PLAYING;
+                    mGameContainer.alpha = 1;
+                    mGameContainer.visible = true;
+                    mPauseContainer.visible = false;
+                    mStartContainer.visible = false;
+                }
+                else if(mGameState == GS_LOST)
+                {
+                    mLevelText.setText(0);
+                    mLinesCleaned = 0;
+                    mFallInterval = mMaxFallInterval;
+                    addScore(-mScore);
+                    mScore = 0;
+                    for(var i =0; i < mBlockArray.length; i++)
+                    {
+                        mGameContainer.removeChild(mBlockArray[i]); 
+                        delete  mBlockArray[i];
+                    }
+                    for(var i=0;i < 4;i++)
+                    {
+                        mGameContainer.removeChild(mNextTetrimo.blocks[i]);
+                        delete  mNextTetrimo.blocks[i];
+                    }
+                    mBlockArray = new Array();
+                    mGameState = GS_PLAYING;
+                    mGameContainer.alpha = 1;
+                    mGameContainer.visible = true;
+                    mLostContainer.visible = false;
+                    
+                    mActiveTetrimo = new Tetrimo(getRandomTetrimo(),(renderer.view.width * 0.5) - (BLOCK_SIZE / 2),-BLOCK_SIZE * 2,getRandomRotation());
+
+                    mNextTetrimo = new Tetrimo(getRandomTetrimo(),(renderer.view.width - PLAY_AREA_PADDING + BLOCK_SIZE * 4),BLOCK_SIZE * 5,getRandomRotation());
+                }
+            }
+        }
+        
+        function onAssetsLoaded()
+        {
+            var bgTiling = new PIXI.TilingSprite(PIXI.Texture.fromFrame(BG_IMG_KEY),BLOCK_SIZE * COLUMNS + BLOCK_SIZE,BLOCK_SIZE*ROWS);
+            bgTiling.position.x = PLAY_AREA_PADDING;
+            stage.addChild(bgTiling);
+            
+            var scoreTextTitle = new PIXI.Text("Score",{font:"bold 50px Arial", fill:"#eeeeee"});
+            scoreTextTitle.position.x = 10;
+            scoreTextTitle.position.y = 5;
+            
+            var nextPieceTitle = new PIXI.Text("Next",{font:"bold 50px Arial", fill:"#eeeeee"});
+            nextPieceTitle.position.x = renderer.view.width - PLAY_AREA_PADDING + 25;
+            nextPieceTitle.position.y = 5;
+            
+            mScoreText = new PIXI.Text("0",{font:"bold 50px Arial", fill:"#eeeeee"});
+            mScoreText.position.x = 10;
+            mScoreText.position.y = scoreTextTitle.position.y + 50;
+            
+            var levelTextTitle = new PIXI.Text("Level",{font:"bold 50px Arial", fill:"#eeeeee"});
+            levelTextTitle.position.x = 10;
+            levelTextTitle.position.y = mScoreText.position.y + 50 + 25;
+
+            mLevelText = new PIXI.Text("0",{font:"bold 50px Arial", fill:"#eeeeee"});
+            mLevelText.position.x = 10;
+            mLevelText.position.y = levelTextTitle.position.y + 50;
+            
+            mGameContainer.addChild(mScoreText);
+            mGameContainer.addChild(scoreTextTitle);
+            mGameContainer.addChild(nextPieceTitle);
+            mGameContainer.addChild(levelTextTitle);
+            mGameContainer.addChild(mLevelText);
+            
+            mGameContainer.visible = false;
+            
+            stage.addChild(mGameContainer);
+            
+            var resumeText = new PIXI.Text("Press Enter to Resume",{font:"bold 25px Arial", fill:"#eeeeee"});
+            resumeText.position.x = renderer.view.width / 2 - 135;
+            resumeText.position.y = renderer.view.height / 2;
+            
+            mPauseContainer.addChild(resumeText);
+            mPauseContainer.visible = false;
+            
+            stage.addChild(mPauseContainer);
+            
+            var startText = new PIXI.Text("Press Enter to Start",{font:"bold 25px Arial", fill:"#eeeeee"});
+            startText.position.x = renderer.view.width / 2 - 115;
+            startText.position.y = renderer.view.height / 2;
+            
+            mStartContainer.addChild(startText);
+            mStartContainer.visible = true;
+            
+            stage.addChild(mStartContainer);
+            
+            var lostText = new PIXI.Text("Press Enter to Restart",{font:"bold 25px Arial", fill:"#eeeeee"});
+            lostText.position.x = renderer.view.width / 2 - 130;
+            lostText.position.y = renderer.view.height / 2;
+            
+            var lostScoreText = new PIXI.Text("00000",{font:"bold 25px Arial", fill:"#eeeeee"});
+            lostScoreText.position.x = renderer.view.width / 2 - 35;
+            lostScoreText.position.y = lostText.position.y - 50;
+            
+            var lostScoreTitleText = new PIXI.Text("Score",{font:"bold 25px Arial", fill:"#eeeeee"});
+            lostScoreTitleText.position.x = renderer.view.width / 2 - 35;
+            lostScoreTitleText.position.y = lostScoreText.position.y - 25;
+            
+            mLostContainer.addChild(lostScoreTitleText);
+            mLostContainer.addChild(lostText);
+            mLostContainer.addChild(lostScoreText);
+            mLostContainer.visible = false;
+            
+            stage.addChild(mLostContainer);
+            
+            window.addEventListener('keydown', onKeyDown,false);
+            window.addEventListener('keyup', onKeyUp,false);
+            
+            mActiveTetrimo = new Tetrimo(getRandomTetrimo(),(renderer.view.width * 0.5) - (BLOCK_SIZE / 2),-BLOCK_SIZE * 2,getRandomRotation());
+
+            mNextTetrimo = new Tetrimo(getRandomTetrimo(),(renderer.view.width - PLAY_AREA_PADDING + BLOCK_SIZE * 4),BLOCK_SIZE * 5,getRandomRotation());
+            
+            requestAnimFrame(update);
+        }	
+
+        function update()
+        {
+            if(mGameState == GS_PLAYING)
+            {
+                if(Date.now() - mLastFall > mFallInterval)
+                {
+                    mLastFall = Date.now();
+                    if(mActiveTetrimo.canMove("DOWN",mBlockArray)) 
+                    {
+                        mMoveSound.stop().play();
+                        mActiveTetrimo.move("DOWN");
+                    }
+                    else
+                    {
+                       onTouchGround();
+                    }
+                }  
+            }
+            requestAnimFrame(update);
+            renderer.render(stage);
+        }
+        
+        function onTouchGround()
+        {
+            for(var i = 0; i < 4; i++)
+            {
+                if(mActiveTetrimo.blocks[i].y < 0)
+                {
+                    mGameState = GS_LOST;
+                    mGameContainer.alpha = 0.35;
+                    mLostContainer.visible = true;
+                    mLostContainer.getChildAt(2).setText(mScoreText.text);
+                }
+            }
+            mInputNextDelay = mInputRepeatDelay;
+            for(var i = 0 ; i < 4 ;i++)
+            {
+                mBlockArray.push(mActiveTetrimo.blocks[i]);
+            }
+            checkForLines();
+            
+            mActiveTetrimo = mNextTetrimo;
+            mActiveTetrimo.setAnchor((renderer.view.width * 0.5) - (BLOCK_SIZE / 2),-BLOCK_SIZE * 2);
+            
+            mNextTetrimo = new Tetrimo(getRandomTetrimo(),(renderer.view.width - PLAY_AREA_PADDING + BLOCK_SIZE * 4),BLOCK_SIZE * 5,getRandomRotation());
+        }
+        
+        function checkForLines()
+        {          
+            var lines = new Array();
+            var linesCleared = 0;
+            //Count blocks in each line
+            for(var i = 0; i < ROWS; i++)
+            {
+                lines[i] = 0;
+                for(var j = 0; j < mBlockArray.length; j++)
+                {
+                    if(i * BLOCK_SIZE == mBlockArray[j].position.y)
+                    {
+                        lines[i]++;
+                    }
+                }
+            }
+            
+            //Clear lines that are filled
+            for(var i = 0; i < ROWS; i++)
+            {
+                if(lines[i] == COLUMNS + 1)
+                {
+                    for(var j = 0; j < mBlockArray.length; j++)
+                    {
+                        if(mBlockArray[j].position.y == BLOCK_SIZE * i)
+                        {
+                            //TO DO: Update this with a pooling mechanism, if there is any time left.
+                            mGameContainer.removeChild(mBlockArray[j]); 
+                            delete  mBlockArray[j];
+                            mBlockArray.splice(j,1);
+                            j--;
+                        }
+                    }
+                    linesCleared++;
+                }
+            }
+            
+            //Drop rows above and add score if any line cleared
+            if(linesCleared > 0)
+            {
+                mLinesCleaned += linesCleared;
+                var level = Math.floor(mLinesCleaned / 3);
+                mFallInterval = mMaxFallInterval - 0.2 * level * 1000;
+                if(mFallInterval < mMinFallInterval) mFallInterval = mMinFallInterval;
+                mLevelText.setText(level);
+                mClearSound.stop().play();
+                for(var i = 0; i < mBlockArray.length; i++)
+                {
+                    for(var j = 0; j < ROWS; j++)
+                    {
+                        if(lines[j] == COLUMNS + 1)
+                        {
+                            if(mBlockArray[i].position.y < BLOCK_SIZE * j)
+                            {
+                                mBlockArray[i].position.y += BLOCK_SIZE;
+                            }
+                        }
+                    }
+                }
+                addScore(mClearLineScore[linesCleared - 1]);
+            }
+        }
+        
+        function addScore(score)
+        {
+            mScore += score;
+            if(mScore < 0) mScore = 0;            
+            mScoreText.setText(mScore);
+        }
+        
+        function getRandomTetrimo()
+        {
+            var dice = Math.floor(Math.random() * 7);
+            switch(dice)
+            {
+                case 0: return 'o';
+                case 1: return 'z';
+                case 2: return 's';
+                case 3: return 't';
+                case 4: return 'l';
+                case 5: return 'j';
+                case 6: return 'i';
+            }
+        }
+        
+        function getRandomRotation()
+        {
+            return Math.floor(Math.random() * 3);
+        }
+    
+    </script>
+ 
+    </body>
+</html>
