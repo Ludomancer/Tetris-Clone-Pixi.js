@@ -24,3 +24,5 @@ Left,Right,Down = Move
 Esc = Pause/Unpause
 
 Enter = Accept
+
+* Created as a personal project to explore Pixi.js and Javascript.
