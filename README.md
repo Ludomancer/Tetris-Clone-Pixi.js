@@ -2,7 +2,7 @@
 
 * Rendering Engine : https://github.com/GoodBoyDigital/pixi.js
 
-*A udio Library : http://buzz.jaysalvat.com/
+* Audio Library : http://buzz.jaysalvat.com/
 
 **Audio Files Used**
 
@@ -25,4 +25,5 @@
 
 * Enter = Accept
 
-Note : Created as a personal project to explore Pixi.js and Javascript.
+**Note**
+Created as a personal project to explore Pixi.js and Javascript.
