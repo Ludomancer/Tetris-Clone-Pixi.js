@@ -14,4 +14,3 @@ Up = Rotate
 Left,Right,Down = Move
 Esc = Pause/Unpause
 Enter = Accept
-
